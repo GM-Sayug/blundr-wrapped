@@ -7,29 +7,52 @@ export default function Home() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(false);
 
-   function shareToX() {
-    const text = `I played ${stats.games} games on Lichess in 2024 and reached a peak rating of ${stats.rating}! Check your #BlundrWrapped here:`;
-    const url = "https://blundr-wrapped.vercel.app"; // We will change this to your real URL later
+  function shareToX() {
+    const text = `I played ${stats.games} games on Lichess and reached a peak rating of ${stats.rating}! Check your #BlundrWrapped:`;
+    const url = "https://blundr-wrapped.vercel.app"; 
     window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
   }
+
   async function fetchLichessData() {
     if (!username) return alert("Enter a username!");
     setLoading(true);
     
     try {
-      // We are fetching the user's profile from Lichess
-      const res = await fetch(`https://lichess.org/api/user/${username}`);
-      const data = await res.json();
+      const userRes = await fetch(`https://lichess.org/api/user/${username}`);
+      const userData = await userRes.json();
       
-      if (data.error) throw new Error("User not found");
+      if (userData.error) throw new Error("User not found");
 
-      // Creating our "Wrapped" data object
+      // Calculate total hours played
+      const totalSeconds = userData.playTime?.total || 0;
+      const totalHours = Math.round(totalSeconds / 3600);
+
+      // Find favorite mode (highest rated with at least 5 games)
+      const perfs = userData.perfs || {};
+      let favoriteMode = "blitz";
+      let highestRating = 0;
+      Object.keys(perfs).forEach(mode => {
+        if (perfs[mode].rating > highestRating && perfs[mode].games > 5) {
+          highestRating = perfs[mode].rating;
+          favoriteMode = mode;
+        }
+      });
+
+      // Calculate win rate
+      const totalGames = userData.count.all || 1;
+      const winRate = Math.round((userData.count.win / totalGames) * 100);
+
       setStats({
-        games: data.count.all,
-        winRate: Math.round((data.perfs.blitz?.rating || 0) / 10), // Just a placeholder for demo
-        rating: data.perfs.blitz?.rating || "N/A",
-        winCount: data.count.win,
-        lossCount: data.count.loss
+        games: userData.count.all,
+        wins: userData.count.win,
+        losses: userData.count.loss,
+        draws: userData.count.draw,
+        winRate: winRate,
+        rating: highestRating || "Unrated",
+        favoriteMode: favoriteMode.charAt(0).toUpperCase() + favoriteMode.slice(1),
+        hoursPlayed: totalHours,
+        createdYear: new Date(userData.createdAt).getFullYear(),
+        title: userData.title || null,
       });
     } catch (err) {
       alert("Could not find that player on Lichess!");
@@ -44,59 +67,143 @@ export default function Home() {
         <title>Blundr Wrapped | {username || '2024'}</title>
       </Head>
 
-      <main className="flex flex-col items-center justify-center min-h-screen px-4 text-center">
+      <main className="flex flex-col items-center justify-center min-h-screen px-4 text-center py-20">
         {!stats ? (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <h1 className="text-7xl md:text-9xl font-black mb-6 tracking-tighter">
+            <motion.p 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4 text-sm font-bold"
+            >
+              Your Year in Mistakes
+            </motion.p>
+
+            <motion.h1 
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.2 }}
+              className="text-7xl md:text-9xl font-black mb-6 tracking-tighter leading-none"
+            >
               BLUNDR <br /> 
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-500">WRAPPED</span>
-            </h1>
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-500">
+                WRAPPED
+              </span>
+            </motion.h1>
+
+            <motion.p 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 1, delay: 0.6 }}
+              className="max-w-md mx-auto text-zinc-400 mb-10 text-lg leading-relaxed"
+            >
+              Because anyone can find a brilliancy, but it takes a special kind of talent to hang a Queen in 3 moves.
+            </motion.p>
             
-            <div className="flex flex-col md:flex-row gap-4 justify-center items-center">
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 1 }}
+              className="flex flex-col md:flex-row gap-4 justify-center items-center"
+            >
               <input 
                 type="text" 
                 placeholder="Lichess Username"
                 className="bg-[#18181b] border-2 border-zinc-800 px-6 py-4 rounded-full text-xl focus:border-red-500 outline-none transition-all w-full md:w-80"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && fetchLichessData()}
               />
               <button 
                 onClick={fetchLichessData}
                 disabled={loading}
-                className="bg-white text-black px-10 py-4 rounded-full font-bold text-xl hover:scale-105 active:scale-95 transition-transform disabled:opacity-50"
+                className="bg-white text-black px-10 py-4 rounded-full font-bold text-xl hover:scale-105 active:scale-95 transition-transform disabled:opacity-50 cursor-pointer"
               >
-                {loading ? "Analyzing..." : "Go"}
+                {loading ? "Analyzing..." : "Generate"}
               </button>
-            </div>
+            </motion.div>
           </motion.div>
         ) : (
-          /* --- THE WRAPPED RESULTS --- */
           <motion.div 
             initial={{ scale: 0.9, opacity: 0 }} 
             animate={{ scale: 1, opacity: 1 }}
-            className="w-full max-w-4xl"
+            className="w-full max-w-6xl"
           >
-            <h2 className="text-4xl font-black mb-12 uppercase tracking-widest text-red-500">
-              {username}'s 2024 Legend
+            <motion.p 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4 text-sm font-bold"
+            >
+              Blundr Wrapped
+            </motion.p>
+            
+            <h2 className="text-5xl md:text-7xl font-black mb-12 tracking-tighter">
+              {stats.title && <span className="text-yellow-500">{stats.title} </span>}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-500">
+                {username}
+              </span>
             </h2>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <StatCard title="Total Games Played" value={stats.games} desc="Every single one was a masterpiece... or a disaster." accent="text-white" />
-              <StatCard title="Peak Blitz Rating" value={stats.rating} desc="The highest heights before the inevitable tilt." accent="text-orange-500" />
-              <StatCard title="Total Victories" value={stats.winCount} desc="You actually won some! Well done." accent="text-green-500" />
-              <StatCard title="Total Losses" value={stats.lossCount} desc="These are just 'learning opportunities'." accent="text-red-500" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <StatCard 
+                index={0}
+                title="Total Games" 
+                value={stats.games.toLocaleString()} 
+                desc={`On Lichess since ${stats.createdYear}. Respect.`}
+                accent="text-white" 
+              />
+              <StatCard 
+                index={1}
+                title="Hours Wasted" 
+                value={`${stats.hoursPlayed}h`}
+                desc="Staring at 64 squares like a champion."
+                accent="text-orange-500" 
+              />
+              <StatCard 
+                index={2}
+                title="Peak Rating" 
+                value={stats.rating}
+                desc={`Weapon of choice: ${stats.favoriteMode}`}
+                accent="text-yellow-500" 
+              />
+              <StatCard 
+                index={3}
+                title="Victories" 
+                value={stats.wins.toLocaleString()}
+                desc="Moments of pure brilliance ✨"
+                accent="text-green-500" 
+              />
+              <StatCard 
+                index={4}
+                title="Defeats" 
+                value={stats.losses.toLocaleString()}
+                desc="Character building experiences."
+                accent="text-red-500" 
+              />
+              <StatCard 
+                index={5}
+                title="Win Rate" 
+                value={`${stats.winRate}%`}
+                desc={stats.winRate >= 50 ? "You're actually good 👀" : "Room for growth!"}
+                accent="text-blue-500" 
+              />
             </div>
+
             <motion.button 
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={shareToX}
-            className="mt-8 bg-[#1DA1F2] text-white px-10 py-4 rounded-full font-bold text-lg flex items-center justify-center gap-2 mx-auto"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={shareToX}
+              className="mt-12 bg-[#1DA1F2] text-white px-10 py-4 rounded-full font-bold text-lg flex items-center justify-center gap-2 mx-auto cursor-pointer"
             >
-  Share on X
-</motion.button>
+              <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+              </svg>
+              Share on X
+            </motion.button>
+
             <button 
-              onClick={() => setStats(null)}
-              className="mt-12 text-zinc-500 hover:text-white transition-colors"
+              onClick={() => { setStats(null); setUsername(''); }}
+              className="mt-6 text-zinc-500 hover:text-white transition-colors cursor-pointer"
             >
               ← Search another player
             </button>
@@ -107,12 +214,18 @@ export default function Home() {
   );
 }
 
-function StatCard({ title, value, desc, accent }) {
+function StatCard({ title, value, desc, accent, index }) {
   return (
-    <div className="bg-[#18181b] border border-zinc-800 p-8 rounded-[2rem] text-left">
-      <h3 className="text-zinc-500 font-bold mb-2 uppercase text-[10px] tracking-[0.2em]">{title}</h3>
-      <div className={`text-5xl font-black mb-2 ${accent}`}>{value}</div>
-      <p className="text-zinc-400 text-sm">{desc}</p>
-    </div>
+    <motion.div 
+      initial={{ opacity: 0, y: 40 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: (index || 0) * 0.1 }}
+      whileHover={{ y: -8 }}
+      className="bg-[#18181b] border border-zinc-800 p-8 rounded-[2rem] text-left hover:border-zinc-600 transition-colors"
+    >
+      <h3 className="text-zinc-500 font-bold mb-3 uppercase text-[10px] tracking-[0.2em]">{title}</h3>
+      <div className={`text-5xl font-black mb-3 tracking-tight ${accent}`}>{value}</div>
+      <p className="text-zinc-400 text-sm leading-relaxed">{desc}</p>
+    </motion.div>
   );
 }
