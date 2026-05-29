@@ -4,58 +4,136 @@ import { useState } from 'react';
 
 export default function Home() {
   const [username, setUsername] = useState('');
+  const [platform, setPlatform] = useState('lichess');
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(false);
 
   function shareToX() {
-    const text = `I played ${stats.games} games on Lichess and reached a peak rating of ${stats.rating}! Check your #BlundrWrapped:`;
-    const url = "https://blundr-wrapped.vercel.app"; 
+    const text = `I played ${stats.games} games on ${stats.platform} and reached a peak rating of ${stats.rating}! Check your #BlundrWrapped:`;
+    const url = "https://blundr-wrapped-ey4m.vercel.app"; 
     window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
   }
 
-  async function fetchLichessData() {
+  async function fetchLichessData(user) {
+    const userRes = await fetch(`https://lichess.org/api/user/${user}`);
+    const userData = await userRes.json();
+    
+    if (userData.error) throw new Error("Not found on Lichess");
+
+    const totalSeconds = userData.playTime?.total || 0;
+    const totalHours = Math.round(totalSeconds / 3600);
+
+    const perfs = userData.perfs || {};
+    let favoriteMode = "blitz";
+    let highestRating = 0;
+    Object.keys(perfs).forEach(mode => {
+      if (perfs[mode].rating > highestRating && perfs[mode].games > 5) {
+        highestRating = perfs[mode].rating;
+        favoriteMode = mode;
+      }
+    });
+
+    const totalGames = userData.count.all || 1;
+    const winRate = Math.round((userData.count.win / totalGames) * 100);
+
+    return {
+      platform: "Lichess",
+      games: userData.count.all,
+      wins: userData.count.win,
+      losses: userData.count.loss,
+      draws: userData.count.draw,
+      winRate: winRate,
+      rating: highestRating || "Unrated",
+      favoriteMode: favoriteMode.charAt(0).toUpperCase() + favoriteMode.slice(1),
+      hoursPlayed: totalHours,
+      createdYear: new Date(userData.createdAt).getFullYear(),
+      title: userData.title || null,
+    };
+  }
+
+  async function fetchChessComData(user) {
+    // Fetch profile
+    const profileRes = await fetch(`https://api.chess.com/pub/player/${user.toLowerCase()}`);
+    if (!profileRes.ok) throw new Error("Not found on Chess.com");
+    const profileData = await profileRes.json();
+
+    // Fetch stats
+    const statsRes = await fetch(`https://api.chess.com/pub/player/${user.toLowerCase()}/stats`);
+    const statsData = await statsRes.json();
+
+    // Find highest rating across modes
+    let highestRating = 0;
+    let favoriteMode = "Blitz";
+    let totalGames = 0;
+    let totalWins = 0;
+    let totalLosses = 0;
+    let totalDraws = 0;
+
+    const modes = {
+      'chess_blitz': 'Blitz',
+      'chess_rapid': 'Rapid',
+      'chess_bullet': 'Bullet',
+      'chess_daily': 'Daily'
+    };
+
+    Object.keys(modes).forEach(key => {
+      const mode = statsData[key];
+      if (mode) {
+        if (mode.last?.rating > highestRating) {
+          highestRating = mode.last.rating;
+          favoriteMode = modes[key];
+        }
+        const record = mode.record || {};
+        totalWins += record.win || 0;
+        totalLosses += record.loss || 0;
+        totalDraws += record.draw || 0;
+      }
+    });
+
+    totalGames = totalWins + totalLosses + totalDraws;
+    const winRate = totalGames > 0 ? Math.round((totalWins / totalGames) * 100) : 0;
+
+    return {
+      platform: "Chess.com",
+      games: totalGames,
+      wins: totalWins,
+      losses: totalLosses,
+      draws: totalDraws,
+      winRate: winRate,
+      rating: highestRating || "Unrated",
+      favoriteMode: favoriteMode,
+      hoursPlayed: Math.round(totalGames * 0.1), // Rough estimate
+      createdYear: profileData.joined ? new Date(profileData.joined * 1000).getFullYear() : "?",
+      title: profileData.title || null,
+    };
+  }
+
+  async function fetchData() {
     if (!username) return alert("Enter a username!");
     setLoading(true);
     
     try {
-      const userRes = await fetch(`https://lichess.org/api/user/${username}`);
-      const userData = await userRes.json();
-      
-      if (userData.error) throw new Error("User not found");
-
-      // Calculate total hours played
-      const totalSeconds = userData.playTime?.total || 0;
-      const totalHours = Math.round(totalSeconds / 3600);
-
-      // Find favorite mode (highest rated with at least 5 games)
-      const perfs = userData.perfs || {};
-      let favoriteMode = "blitz";
-      let highestRating = 0;
-      Object.keys(perfs).forEach(mode => {
-        if (perfs[mode].rating > highestRating && perfs[mode].games > 5) {
-          highestRating = perfs[mode].rating;
-          favoriteMode = mode;
+      let data;
+      if (platform === 'lichess') {
+        try {
+          data = await fetchLichessData(username);
+        } catch {
+          // Auto-fallback to Chess.com
+          alert("Not found on Lichess, trying Chess.com...");
+          data = await fetchChessComData(username);
         }
-      });
-
-      // Calculate win rate
-      const totalGames = userData.count.all || 1;
-      const winRate = Math.round((userData.count.win / totalGames) * 100);
-
-      setStats({
-        games: userData.count.all,
-        wins: userData.count.win,
-        losses: userData.count.loss,
-        draws: userData.count.draw,
-        winRate: winRate,
-        rating: highestRating || "Unrated",
-        favoriteMode: favoriteMode.charAt(0).toUpperCase() + favoriteMode.slice(1),
-        hoursPlayed: totalHours,
-        createdYear: new Date(userData.createdAt).getFullYear(),
-        title: userData.title || null,
-      });
+      } else {
+        try {
+          data = await fetchChessComData(username);
+        } catch {
+          // Auto-fallback to Lichess
+          alert("Not found on Chess.com, trying Lichess...");
+          data = await fetchLichessData(username);
+        }
+      }
+      setStats(data);
     } catch (err) {
-      alert("Could not find that player on Lichess!");
+      alert("Could not find that player on either platform!");
     } finally {
       setLoading(false);
     }
@@ -69,7 +147,7 @@ export default function Home() {
 
       <main className="flex flex-col items-center justify-center min-h-screen px-4 text-center py-20">
         {!stats ? (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full max-w-2xl">
             <motion.p 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -99,6 +177,35 @@ export default function Home() {
             >
               Because anyone can find a brilliancy, but it takes a special kind of talent to hang a Queen in 3 moves.
             </motion.p>
+
+            {/* Platform Toggle */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.9 }}
+              className="inline-flex bg-[#18181b] border border-zinc-800 rounded-full p-1 mb-6"
+            >
+              <button
+                onClick={() => setPlatform('lichess')}
+                className={`px-6 py-2 rounded-full text-sm font-bold transition-all cursor-pointer ${
+                  platform === 'lichess' 
+                    ? 'bg-white text-black' 
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Lichess
+              </button>
+              <button
+                onClick={() => setPlatform('chesscom')}
+                className={`px-6 py-2 rounded-full text-sm font-bold transition-all cursor-pointer ${
+                  platform === 'chesscom' 
+                    ? 'bg-white text-black' 
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Chess.com
+              </button>
+            </motion.div>
             
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
@@ -108,20 +215,29 @@ export default function Home() {
             >
               <input 
                 type="text" 
-                placeholder="Lichess Username"
+                placeholder={`${platform === 'lichess' ? 'Lichess' : 'Chess.com'} Username`}
                 className="bg-[#18181b] border-2 border-zinc-800 px-6 py-4 rounded-full text-xl focus:border-red-500 outline-none transition-all w-full md:w-80"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && fetchLichessData()}
+                onKeyDown={(e) => e.key === 'Enter' && fetchData()}
               />
               <button 
-                onClick={fetchLichessData}
+                onClick={fetchData}
                 disabled={loading}
                 className="bg-white text-black px-10 py-4 rounded-full font-bold text-xl hover:scale-105 active:scale-95 transition-transform disabled:opacity-50 cursor-pointer"
               >
                 {loading ? "Analyzing..." : "Generate"}
               </button>
             </motion.div>
+
+            <motion.p 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.3 }}
+              className="text-zinc-600 text-xs mt-6"
+            >
+              We&apos;ll auto-search the other platform if not found 🔄
+            </motion.p>
           </motion.div>
         ) : (
           <motion.div 
@@ -134,7 +250,7 @@ export default function Home() {
               animate={{ opacity: 1 }}
               className="text-red-500 font-mono tracking-[0.3em] uppercase mb-4 text-sm font-bold"
             >
-              Blundr Wrapped
+              {stats.platform} • Blundr Wrapped
             </motion.p>
             
             <h2 className="text-5xl md:text-7xl font-black mb-12 tracking-tighter">
@@ -145,48 +261,12 @@ export default function Home() {
             </h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <StatCard 
-                index={0}
-                title="Total Games" 
-                value={stats.games.toLocaleString()} 
-                desc={`On Lichess since ${stats.createdYear}. Respect.`}
-                accent="text-white" 
-              />
-              <StatCard 
-                index={1}
-                title="Hours Wasted" 
-                value={`${stats.hoursPlayed}h`}
-                desc="Staring at 64 squares like a champion."
-                accent="text-orange-500" 
-              />
-              <StatCard 
-                index={2}
-                title="Peak Rating" 
-                value={stats.rating}
-                desc={`Weapon of choice: ${stats.favoriteMode}`}
-                accent="text-yellow-500" 
-              />
-              <StatCard 
-                index={3}
-                title="Victories" 
-                value={stats.wins.toLocaleString()}
-                desc="Moments of pure brilliance ✨"
-                accent="text-green-500" 
-              />
-              <StatCard 
-                index={4}
-                title="Defeats" 
-                value={stats.losses.toLocaleString()}
-                desc="Character building experiences."
-                accent="text-red-500" 
-              />
-              <StatCard 
-                index={5}
-                title="Win Rate" 
-                value={`${stats.winRate}%`}
-                desc={stats.winRate >= 50 ? "You're actually good 👀" : "Room for growth!"}
-                accent="text-blue-500" 
-              />
+              <StatCard index={0} title="Total Games" value={stats.games.toLocaleString()} desc={`On ${stats.platform} since ${stats.createdYear}.`} accent="text-white" />
+              <StatCard index={1} title="Peak Rating" value={stats.rating} desc={`Weapon of choice: ${stats.favoriteMode}`} accent="text-yellow-500" />
+              <StatCard index={2} title="Hours Played" value={`${stats.hoursPlayed}h`} desc="Staring at 64 squares like a champion." accent="text-orange-500" />
+              <StatCard index={3} title="Victories" value={stats.wins.toLocaleString()} desc="Moments of pure brilliance ✨" accent="text-green-500" />
+              <StatCard index={4} title="Defeats" value={stats.losses.toLocaleString()} desc="Character building experiences." accent="text-red-500" />
+              <StatCard index={5} title="Win Rate" value={`${stats.winRate}%`} desc={stats.winRate >= 50 ? "You're actually good 👀" : "Room for growth!"} accent="text-blue-500" />
             </div>
 
             <motion.button 
