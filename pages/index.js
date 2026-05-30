@@ -7,6 +7,7 @@ export default function Home() {
   const [platform, setPlatform] = useState('lichess');
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   function shareToX() {
     const text = `I played ${stats.games} games on ${stats.platform} and reached a peak rating of ${stats.rating}! Check your #BlundrWrapped:`;
@@ -52,16 +53,13 @@ export default function Home() {
   }
 
   async function fetchChessComData(user) {
-    // Fetch profile
     const profileRes = await fetch(`https://api.chess.com/pub/player/${user.toLowerCase()}`);
     if (!profileRes.ok) throw new Error("Not found on Chess.com");
     const profileData = await profileRes.json();
 
-    // Fetch stats
     const statsRes = await fetch(`https://api.chess.com/pub/player/${user.toLowerCase()}/stats`);
     const statsData = await statsRes.json();
 
-    // Find highest rating across modes
     let highestRating = 0;
     let favoriteMode = "Blitz";
     let totalGames = 0;
@@ -102,15 +100,19 @@ export default function Home() {
       winRate: winRate,
       rating: highestRating || "Unrated",
       favoriteMode: favoriteMode,
-      hoursPlayed: Math.round(totalGames * 0.1), // Rough estimate
+      hoursPlayed: Math.round(totalGames * 0.1),
       createdYear: profileData.joined ? new Date(profileData.joined * 1000).getFullYear() : "?",
       title: profileData.title || null,
     };
   }
 
   async function fetchData() {
-    if (!username) return alert("Enter a username!");
+    if (!username) {
+      setError("Please enter a username");
+      return;
+    }
     setLoading(true);
+    setError(null);
     
     try {
       let data;
@@ -118,22 +120,18 @@ export default function Home() {
         try {
           data = await fetchLichessData(username);
         } catch {
-          // Auto-fallback to Chess.com
-          alert("Not found on Lichess, trying Chess.com...");
           data = await fetchChessComData(username);
         }
       } else {
         try {
           data = await fetchChessComData(username);
         } catch {
-          // Auto-fallback to Lichess
-          alert("Not found on Chess.com, trying Lichess...");
           data = await fetchLichessData(username);
         }
       }
       setStats(data);
     } catch (err) {
-      alert("Could not find that player on either platform!");
+      setError("Player not found on either platform 🤷");
     } finally {
       setLoading(false);
     }
@@ -230,14 +228,24 @@ export default function Home() {
               </button>
             </motion.div>
 
-            <motion.p 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 1.3 }}
-              className="text-zinc-600 text-xs mt-6"
-            >
-              We&apos;ll auto-search the other platform if not found 🔄
-            </motion.p>
+            {error ? (
+              <motion.div 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-6 inline-block bg-red-500/10 border border-red-500/30 text-red-400 px-6 py-3 rounded-full text-sm font-medium"
+              >
+                {error}
+              </motion.div>
+            ) : (
+              <motion.p 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 1.3 }}
+                className="text-zinc-600 text-xs mt-6"
+              >
+                Auto-searches the other platform if not found 🔄
+              </motion.p>
+            )}
           </motion.div>
         ) : (
           <motion.div 
@@ -282,7 +290,7 @@ export default function Home() {
             </motion.button>
 
             <button 
-              onClick={() => { setStats(null); setUsername(''); }}
+              onClick={() => { setStats(null); setUsername(''); setError(null); }}
               className="mt-6 text-zinc-500 hover:text-white transition-colors cursor-pointer"
             >
               ← Search another player
